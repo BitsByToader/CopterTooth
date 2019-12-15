@@ -1,6 +1,9 @@
 <resources>
     <string name="app_name">CopterTooth</string>
-
     <string name="dummy_button">Dummy Button</string>
     <string name="dummy_content">DUMMY\nCONTENT</string>
+    <string name="takeoff">Decolare</string>
+    <string name="land">Aterizare</string>
+    <string name="calibrate">Calibrare</string>
+    <string name="main_title">Inclinati telefonul pentru a controla elicopterul</string>
 </resources>
