@@ -1,33 +1,62 @@
 package com.tudor.coptertooth
 
+import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.SeekBar
+import android.widget.SeekBar.OnSeekBarChangeListener
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import java.math.RoundingMode
 
 
 //TODO: find a way to connect to bluetooth module
 //TODO: send data over bluetooth to helicopter
-//TODO: make a listener for the seekbar
+//TODO: (not important) animate the seek bar when user presses takeoff/land buttons
 
-class FullscreenActivity : AppCompatActivity() {
+class FullscreenActivity : AppCompatActivity(), SensorEventListener {
+
+    //Fullscreen TextView -- used for dev purposes
+    private lateinit var fullscreen: TextView
+
+    //Seek bar -- altitude level of helicopter
+    private lateinit var altitude: SeekBar
+
+    //Gyroscope
+    private lateinit var mSensorManager: SensorManager
+    private var mGyro: Sensor? = null
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        mSensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        mGyro= mSensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
 
         setContentView(R.layout.activity_fullscreen)
 
         // Hide UI first (that shouldn't be there since it's not needed, but I', not bothered enough to delete it
         supportActionBar?.hide()
+
+        mSensorManager.registerListener(this,mGyro, SensorManager.SENSOR_DELAY_NORMAL)
     }
 
     override fun onPostCreate(savedInstanceState: Bundle?) {
-        //Retrieve the seekbar
-        val altitude = findViewById<SeekBar>(R.id.altitude_level)
 
         super.onPostCreate(savedInstanceState)
+
+        //Retrieve the seek bar
+        altitude = findViewById<SeekBar>(R.id.altitude_level)
+
+        //Retrieve the fullscreen text view
+        fullscreen = findViewById<TextView>(R.id.fullscreen_content)
 
         //Find the takeoff button and set a click listener on it
         findViewById<Button>(R.id.takeoff_button).setOnClickListener  {
@@ -55,24 +84,45 @@ class FullscreenActivity : AppCompatActivity() {
             //TODO: make a method of calibrating the gyro to the user's preferred holding position using the popup
         }
 
-
-
         //Set the listener for the seekbar
-        /*altitude?.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(altitude: SeekBar, progress: Int, fromUser: Boolean) {
-                // Write code to perform some action when progress is changed.
-
+        altitude.setOnSeekBarChangeListener(object : OnSeekBarChangeListener {
+            override fun onStopTrackingTouch(altitude: SeekBar) {
+                //TODO: this method will have to call the function that sends the value over bluetooth
             }
 
             override fun onStartTrackingTouch(altitude: SeekBar) {
-                // Write code to perform some action when touch is started.
+                //Don't think I'll have to use this tbh
             }
 
-            override fun onStopTrackingTouch(altitude: SeekBar) {
-                // Write code to perform some action when touch is stopped.
-
+            override fun onProgressChanged( altitude: SeekBar, progress: Int, fromUser: Boolean ) {
             }
-        })*/
+        })
+    }
+
+    override fun onResume() {
+        super.onResume()
+
+        mSensorManager.registerListener(this,mGyro, SensorManager.SENSOR_DELAY_NORMAL)
+    }
+
+    override fun onPause() {
+        super.onPause()
+
+        mSensorManager.unregisterListener(this)
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {
+        // Do something here if sensor accuracy changes.
+        // Won't probably happen tbh
+    }
+
+    override fun onSensorChanged(event: SensorEvent) {
+        // The light sensor returns a single value.
+        // Many sensors return 3 values, one for each axis.
+        // Do something with this sensor value.
+        var test: Float = event.values[1]
+        //toBigDecimal().setScale(8, RoundingMode.UP)
+        fullscreen.setText(test.toString())
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
