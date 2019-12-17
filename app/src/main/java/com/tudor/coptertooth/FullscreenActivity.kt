@@ -1,12 +1,12 @@
 package com.tudor.coptertooth
 
+import android.app.AlertDialog
 import android.content.Context
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
-import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.SeekBar
@@ -14,7 +14,6 @@ import android.widget.SeekBar.OnSeekBarChangeListener
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import java.math.RoundingMode
 
 
 //TODO: find a way to connect to bluetooth module
@@ -33,19 +32,38 @@ class FullscreenActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var mSensorManager: SensorManager
     private var mGyro: Sensor? = null
 
+    //Dialog alert
+    private lateinit var calibrationDialogBuilder: AlertDialog.Builder
+    private lateinit var alert: AlertDialog
+
+    //Calibrated values of gyroscope
+    var calState = 0
+    private lateinit var calibratedValues: CalibrationData
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        setContentView(R.layout.activity_fullscreen)
+
+        //Create a sensor manager and gyroscope instance
         mSensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         mGyro= mSensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
 
-        setContentView(R.layout.activity_fullscreen)
+        //Register the listener for the gyroscope
+        mSensorManager.registerListener(this,mGyro, SensorManager.SENSOR_DELAY_NORMAL)
+
+        //Create the calibration dialog
+        calibrationDialogBuilder = AlertDialog.Builder(this)
+        calibrationDialogBuilder.setMessage("Acum veti calibra senzorul. Tineti telefonul intr-o pozititie comfortabila si apasati butonul de start")
+            .setCancelable(false)
+            .setPositiveButton("Incepeti", null)
+        alert = calibrationDialogBuilder.create()
+        alert.setTitle("Calibrare")
+
 
         // Hide UI first (that shouldn't be there since it's not needed, but I', not bothered enough to delete it
         supportActionBar?.hide()
-
-        mSensorManager.registerListener(this,mGyro, SensorManager.SENSOR_DELAY_NORMAL)
     }
 
     override fun onPostCreate(savedInstanceState: Bundle?) {
@@ -80,8 +98,8 @@ class FullscreenActivity : AppCompatActivity(), SensorEventListener {
 
         //Find the calibrate button and set a click listener on it
         findViewById<Button>(R.id.calibrate_button).setOnClickListener  {
-            //TODO: make a popup that will direct the user to calibrate the gyroscope
             //TODO: make a method of calibrating the gyro to the user's preferred holding position using the popup
+            alert.show()
         }
 
         //Set the listener for the seekbar
@@ -97,6 +115,18 @@ class FullscreenActivity : AppCompatActivity(), SensorEventListener {
             override fun onProgressChanged( altitude: SeekBar, progress: Int, fromUser: Boolean ) {
             }
         })
+
+        //Override the listener for the positive dialog button so it won't dismiss the dialog upon the press
+        alert.setOnShowListener {
+            alert.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                when(calState) {
+                    0 -> {
+                        alert.setMessage("Miscati telefonul in pozitia de acceleratie maxima!")
+                    }
+                    //TODO: Makeup some states that will represent the user's actions and map them to a variable to be later checked in the listener for the rotation vector where the values will be the calibrated data
+                }
+            }
+        }
     }
 
     override fun onResume() {
@@ -144,5 +174,9 @@ class FullscreenActivity : AppCompatActivity(), SensorEventListener {
                 or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 or View.SYSTEM_UI_FLAG_FULLSCREEN)
     }
-
 }
+
+data class CalibrationData(var calibrationState: Int = 0,
+                           var baseValue: Float,
+                           var maxForwardPos: Float, var maxBackwardPos: Float,
+                           var maxLeftPos: Float, var maxRightPos: Float)
