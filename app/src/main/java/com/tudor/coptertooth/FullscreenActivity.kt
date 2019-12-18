@@ -7,6 +7,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.SeekBar
@@ -37,8 +38,9 @@ class FullscreenActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var alert: AlertDialog
 
     //Calibrated values of gyroscope
-    var calState = 0
-    private lateinit var calibratedValues: CalibrationData
+    private var calState = -1
+    private var calibratedValues = CalibrationData(0.toFloat(),0.toFloat(),0.toFloat(),0.toFloat(),0.toFloat(),0.toFloat())
+
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,9 +57,9 @@ class FullscreenActivity : AppCompatActivity(), SensorEventListener {
 
         //Create the calibration dialog
         calibrationDialogBuilder = AlertDialog.Builder(this)
-        calibrationDialogBuilder.setMessage("Acum veti calibra senzorul. Tineti telefonul intr-o pozititie comfortabila si apasati butonul de start")
+        calibrationDialogBuilder.setMessage("Acum veti calibra senzorul. Apasati butonul Gata pentru a incepe.")
             .setCancelable(false)
-            .setPositiveButton("Incepeti", null)
+            .setPositiveButton("Gata", null)
         alert = calibrationDialogBuilder.create()
         alert.setTitle("Calibrare")
 
@@ -81,7 +83,7 @@ class FullscreenActivity : AppCompatActivity(), SensorEventListener {
             //show toast
             val toast = Toast.makeText(applicationContext, "Incepem decolarea in 3...2...1...", Toast.LENGTH_LONG)
             toast.show()
-
+            
             //send takeoff message to helicopter
             altitude.progress = 50
         }
@@ -120,11 +122,21 @@ class FullscreenActivity : AppCompatActivity(), SensorEventListener {
         alert.setOnShowListener {
             alert.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 when(calState) {
-                    0 -> {
-                        alert.setMessage("Miscati telefonul in pozitia de acceleratie maxima!")
+                    -1 -> { //Uncalibrated, move on to the calibration ~~ getting the base position of the phone
+                        alert.setMessage("Tineti telefonul intr-o pozitie comfortabila.")
                     }
-                    //TODO: Makeup some states that will represent the user's actions and map them to a variable to be later checked in the listener for the rotation vector where the values will be the calibrated data
+                    0 -> alert.setMessage("Miscati telefonul in pozitia de acceleratie maxima.") //Maximum acceleration position
+                    1 -> alert.setMessage("Tineti telefonul in pozitia in care elicopterul va frana.") //Braking position
+                    2 -> alert.setMessage("Miscati telefonul in pozitia in care elicopterul va face stanga.") //Maximum left position
+                    3 -> alert.setMessage("Miscati telefonul in pozitia in care elicopterul va face dreapta.") //Maximum right position
+                    4 -> { //Calibrated
+                        calState = -2
+                        alert.dismiss()
+                        fullscreen.setText("Inclinati telefonul pentru a controla elicopterul")
+                        alert.setMessage("Acum veti calibra senzorul. Apasati butonul Gata pentru a incepe.")
+                    }
                 }
+                calState++
             }
         }
     }
@@ -147,12 +159,19 @@ class FullscreenActivity : AppCompatActivity(), SensorEventListener {
     }
 
     override fun onSensorChanged(event: SensorEvent) {
-        // The light sensor returns a single value.
-        // Many sensors return 3 values, one for each axis.
-        // Do something with this sensor value.
-        var test: Float = event.values[1]
         //toBigDecimal().setScale(8, RoundingMode.UP)
-        fullscreen.setText(test.toString())
+        if ( calState != -1 ) {
+            when(calState) {
+                0 -> {
+                    calibratedValues.baseValueY = event.values[1]
+                    calibratedValues.baseValueZ = event.values[2]
+                }
+                1 -> calibratedValues.maxForwardPos = event.values[1]
+                2 -> calibratedValues.maxBackwardPos = event.values[1]
+                3 -> calibratedValues.maxLeftPos = event.values[2]
+                4 -> calibratedValues.maxRightPos = event.values[2]
+            }
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -176,7 +195,13 @@ class FullscreenActivity : AppCompatActivity(), SensorEventListener {
     }
 }
 
-data class CalibrationData(var calibrationState: Int = 0,
-                           var baseValue: Float,
+data class CalibrationData(var baseValueY: Float, var baseValueZ: Float,
                            var maxForwardPos: Float, var maxBackwardPos: Float,
                            var maxLeftPos: Float, var maxRightPos: Float)
+
+/*Log.d("CalibData", "baseValueY = ${calibratedValues.baseValueY}\n")
+  Log.d("CalibData", "baseValueZ = ${calibratedValues.baseValueZ}\n")
+  Log.d("CalibData", "maxForwardPos = ${calibratedValues.maxForwardPos}\n")
+  Log.d("CalibData", "maxBackwardPos = ${calibratedValues.maxBackwardPos}\n")
+  Log.d("CalibData", "maxLeftPos = ${calibratedValues.maxLeftPos}\n")
+  Log.d("CalibData", "maxRightPos = ${calibratedValues.maxRightPos}\n")*/
