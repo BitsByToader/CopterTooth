@@ -6,4 +6,5 @@
     <string name="land">Aterizare</string>
     <string name="calibrate">Calibrare</string>
     <string name="main_title">Calibrati telefonul pentru a incepe</string>
+    <string name="connect_button_string">Conectare</string>
 </resources>

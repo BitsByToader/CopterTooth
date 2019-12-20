@@ -21,6 +21,9 @@ allprojects {
         jcenter()
         
     }
+    ext {
+        blegattcoroutines_version = '0.4.1'
+    }
 }
 
 task clean(type: Delete) {

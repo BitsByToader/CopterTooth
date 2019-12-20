@@ -1,12 +1,19 @@
 package com.tudor.coptertooth
 
 import android.app.AlertDialog
+import android.bluetooth.*
+import android.bluetooth.le.BluetoothLeScanner
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
+import android.os.Handler
 import android.util.Log
 import android.view.View
 import android.widget.Button
@@ -15,13 +22,27 @@ import android.widget.SeekBar.OnSeekBarChangeListener
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.beepiz.bluetooth.gattcoroutines.GattConnection
+import java.util.*
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.*
+import java.lang.Exception
 
 
 //TODO: find a way to connect to bluetooth module
 //TODO: send data over bluetooth to helicopter
 //TODO: (not important) animate the seek bar when user presses takeoff/land buttons
 
-class FullscreenActivity : AppCompatActivity(), SensorEventListener {
+private const val TAG = "GattServerActivity"
+private const val REQUEST_ENABLE_BT = 1
+private const val SCAN_PERIOD: Long = 10000
+
+class FullscreenActivity : AppCompatActivity(), SensorEventListener, CoroutineScope {
+
+    //Coroutines stuff for maintaining the life cycle of the GATT Connection
+    private var blConnectionJob: Job = Job()
+    override val coroutineContext: CoroutineContext
+        get() = Dispatchers.Main + blConnectionJob
 
     //Fullscreen TextView -- used for dev purposes
     private lateinit var fullscreen: TextView
@@ -41,12 +62,32 @@ class FullscreenActivity : AppCompatActivity(), SensorEventListener {
     private var calState = -1
     private var calibratedValues = CalibrationData(0.toFloat(),0.toFloat(),0.toFloat(),0.toFloat(),0.toFloat(),0.toFloat())
 
+    private val baseBluetoothUuidPostfix = "0000-1000-8000-00805f9b34fb"
+
+    //MAC Address of MLT-BT05
+    private val iBks12MacAddress = "54:4A:16:6F:47:9A"
+    private val defaultDeviceMacAddress = iBks12MacAddress
+
+    //Bluetooth
+    private val bluetoothAdapter: BluetoothAdapter? by lazy(LazyThreadSafetyMode.NONE) {
+        val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        bluetoothManager.adapter
+    }
+    private val BluetoothAdapter.isDisabled: Boolean
+        get() = !isEnabled
+    private lateinit var bluetoothLeHelicopter: BluetoothDevice
+    private lateinit var helicopterConnection: GattConnection
+    private var bleConnectionState: Boolean = false
+    private lateinit var mainCharacteristic: BluetoothGattCharacteristic
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         setContentView(R.layout.activity_fullscreen)
+
+        // Hide UI first (that shouldn't be there since it's not needed, but I', not bothered enough to delete it
+        supportActionBar?.hide()
 
         //Create a sensor manager and gyroscope instance
         mSensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -63,9 +104,16 @@ class FullscreenActivity : AppCompatActivity(), SensorEventListener {
         alert = calibrationDialogBuilder.create()
         alert.setTitle("Calibrare")
 
+        // Ensures Bluetooth is available on the device and it is enabled. If not,
+        // displays a dialog requesting user permission to enable Bluetooth.
+        bluetoothAdapter?.takeIf { it.isDisabled }?.apply {
+            val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+            startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT)
+        }
 
-        // Hide UI first (that shouldn't be there since it's not needed, but I', not bothered enough to delete it
-        supportActionBar?.hide()
+        //Find the bluetooth helicopter based on its MAC address and create a GATT instance with it
+        bluetoothLeHelicopter = bluetoothAdapter!!.getRemoteDevice(defaultDeviceMacAddress)
+        helicopterConnection = GattConnection.invoke(bluetoothLeHelicopter)
     }
 
     override fun onPostCreate(savedInstanceState: Bundle?) {
@@ -80,28 +128,72 @@ class FullscreenActivity : AppCompatActivity(), SensorEventListener {
 
         //Find the takeoff button and set a click listener on it
         findViewById<Button>(R.id.takeoff_button).setOnClickListener  {
-            //show toast
-            val toast = Toast.makeText(applicationContext, "Incepem decolarea in 3...2...1...", Toast.LENGTH_LONG)
-            toast.show()
-            
-            //send takeoff message to helicopter
-            altitude.progress = 50
+            if (bleConnectionState) {
+                //show toast
+                val toast = Toast.makeText(applicationContext, "Incepem decolarea in 3...2...1...", Toast.LENGTH_LONG)
+                toast.show()
+
+                //send takeoff message to helicopter
+                altitude.progress = 50
+            } else {
+                Toast.makeText(applicationContext, "Mai intai trebuie sa va conectati la elicopter!", Toast.LENGTH_LONG).show()
+            }
         }
 
         //Find the land button and set a click listener on it
         findViewById<Button>(R.id.land_button).setOnClickListener  {
-            //show toast
-            val toast = Toast.makeText(applicationContext, "Incepem aterizarea in 3...2...1...", Toast.LENGTH_LONG)
-            toast.show()
+            if ( bleConnectionState) {
+                //show toast
+                val toast = Toast.makeText(applicationContext, "Incepem aterizarea in 3...2...1...", Toast.LENGTH_LONG)
+                toast.show()
 
-            //send land message to helicopter
-            altitude.progress = 0
+                //send land message to helicopter
+                altitude.progress = 0
+
+                launch {
+                    var tosend: String = "12346578"
+                    mainCharacteristic.value = tosend.toByteArray()
+                    helicopterConnection.writeCharacteristic(mainCharacteristic)
+                    Log.d(TAG, "Sent with a size of: ${tosend.toByteArray().size}")
+                }
+            } else {
+                Toast.makeText(applicationContext, "Mai intai trebuie sa va conectati la elicopter!", Toast.LENGTH_LONG).show()
+            }
         }
 
         //Find the calibrate button and set a click listener on it
         findViewById<Button>(R.id.calibrate_button).setOnClickListener  {
-            //TODO: make a method of calibrating the gyro to the user's preferred holding position using the popup
             alert.show()
+        }
+
+        //Find the connect button and set a click listener to it
+        findViewById<Button>(R.id.connect_button).setOnClickListener {
+            if ( bleConnectionState) {
+                helicopterConnection.close()
+                findViewById<Button>(R.id.connect_button).text = "Conectare"
+                bleConnectionState = false
+            } else {
+                launch {
+                    helicopterConnection.connect()
+                    bleConnectionState = true
+                    findViewById<Button>(R.id.connect_button).text = "Deconectare"
+                    val services = helicopterConnection.discoverServices()
+                    //Code bellow is highly wank and innefficient because it searches every charact until it finds the correct one
+                    //I am doing this because I haven't found a way (yet) to instantiate a BluetoothGATTCharacteristic with only the UUID
+                    services.forEach {
+                        it.characteristics.forEach {
+                            try {
+                                if ( it.uuid == uuidFromShortCode16("FFE1") ) {
+                                    mainCharacteristic = it
+                                }
+                            } catch (e: Exception) {
+                                Log.d(TAG, "Couldn't read charast with uuid: ${it.uuid}", e)
+                            }
+                        }
+                    }
+                }
+            }
+
         }
 
         //Set the listener for the seekbar
@@ -153,6 +245,12 @@ class FullscreenActivity : AppCompatActivity(), SensorEventListener {
         mSensorManager.unregisterListener(this)
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        blConnectionJob.cancel()
+        helicopterConnection.close()
+    }
+
     override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {
         // Do something here if sensor accuracy changes.
         // Won't probably happen tbh
@@ -192,6 +290,10 @@ class FullscreenActivity : AppCompatActivity(), SensorEventListener {
                 // Hide the nav bar and status bar
                 or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 or View.SYSTEM_UI_FLAG_FULLSCREEN)
+    }
+
+    fun uuidFromShortCode16(shortCode16: String): UUID {
+        return UUID.fromString("0000" + shortCode16 + "-" + baseBluetoothUuidPostfix);
     }
 }
 
